@@ -3,7 +3,9 @@
  *
  * Type + premières lignes de pile du code de l'application (fonction, sans
  * ligne ni colonne ni nom de fichier haché par le bundler) ; à défaut de
- * pile utilisable, le message normalisé — minuscules, chiffres en « # »,
+ * pile utilisable — et une pile MINIFIÉE ne l'est pas (lot 4b : « mu »,
+ * « Ex », « xjt » changent à chaque déploiement, une même erreur serait un
+ * problème nouveau à chaque version) —, le message normalisé — minuscules, chiffres en « # »,
  * identifiants en « <id> », texte entre guillemets en « '…' ». « took 37261ms »
  * et « took 12840ms » sont le même problème ; deux appelants différents d'une
  * même erreur générique ne le sont pas.
@@ -21,6 +23,16 @@ export function normalizeMessage(message: string): string {
     .slice(0, 200);
 }
 
+/**
+ * Un nom de 1 à 3 caractères est celui qu'a donné le minifieur, pas l'auteur :
+ * il change d'un déploiement à l'autre et ne peut pas fonder une empreinte.
+ * La partie après le dernier point compte (« Object.mu », « t.Ex »).
+ */
+export function isMinifiedName(fn: string): boolean {
+  const last = fn.split('.').pop() ?? fn;
+  return /^[A-Za-z_$][\w$]{0,2}$/.test(last);
+}
+
 /** Les fonctions de la pile, du plus profond au plus haut, hors dépendances. */
 export function stackFunctions(stack: string | null | undefined, max = 3): string[] {
   if (!stack) return [];
@@ -31,7 +43,7 @@ export function stackFunctions(stack: string | null | undefined, max = 3): strin
     const m = /^\s*at\s+([^\s(]+)\s*\(/.exec(line) ?? /^\s*([^@\s]+)@/.exec(line);
     if (!m) continue;
     const fn = m[1].replace(/^(async|new)\s+/, '').replace(/\$[0-9]+$/, '');
-    if (!fn || fn === '<anonymous>' || /^Object\.|^Array\./.test(fn)) continue;
+    if (!fn || fn === '<anonymous>' || /^Object\.|^Array\./.test(fn) || isMinifiedName(fn)) continue;
     out.push(fn);
     if (out.length >= max) break;
   }

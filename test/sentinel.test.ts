@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
+import { transformSync } from 'esbuild';
 import { resolve } from 'node:path';
 import {
   createSentinel, fingerprintOf, normalizeError, scrubText, scrubUrl, validateEvent,
   withSentinel, SENTINEL_LIMITS, type SentinelEvent, isOpenStatus, nextStatuses, statusNeedsNote,
+  isMinifiedName, originalPositionFor, parseStackFrames, type RawSourceMap,
 } from '../src/index.ts';
 
 const root = resolve(__dirname, '..');
@@ -116,5 +118,21 @@ describe('Sentinel', () => {
     expect(statusNeedsNote('in_progress')).toBe(false);
     expect(isOpenStatus('in_progress')).toBe(true);
     expect(isOpenStatus('resolved')).toBe(false);
+  });
+
+  it('source map : une position minifiée retrouve son origine ; un cadre n’est jamais un chemin', () => {
+    const src = "export function loadOrders(t) {\n  if (!t) {\n    throw new Error('x');\n  }\n  return t;\n}";
+    const out = transformSync(src, { minify: true, sourcemap: 'external', sourcefile: 'src/a.ts', format: 'esm' });
+    const at = out.code.indexOf('throw');
+    const before = out.code.slice(0, at);
+    const pos = originalPositionFor(JSON.parse(out.map) as RawSourceMap, before.split('\n').length, at - before.lastIndexOf('\n'));
+    expect(pos).toMatchObject({ source: 'src/a.ts', line: 3, column: 5 });
+    expect(parseStackFrames('at a (https://x/assets/..%2Fetc.js:1:2)\nat b (https://x/assets/index-A1.js:1:2)').map((f) => f.file)).toEqual(['index-A1.js']);
+  });
+
+  it('une pile minifiée ne fonde pas l’empreinte', () => {
+    expect(isMinifiedName('Object.xjt')).toBe(true);
+    const e = (stack: string) => normalizeError(Object.assign(new Error('boom'), { stack }));
+    expect(fingerprintOf(e('Error\n    at mu (https://x/assets/i-1.js:1:2)'))).toBe(fingerprintOf(e('Error\n    at Kc (https://x/assets/i-2.js:3:4)')));
   });
 });
