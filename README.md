@@ -18,8 +18,17 @@ Licence : [Apache-2.0](LICENSE).
 | Journal écrit sans compte et sans limite | 64 Ko par événement, 30 / minute par clé, 600 / minute au total ; empreinte recalculée par le serveur |
 | 343 lignes isolées | Un problème par empreinte (type + pile de l'application, à défaut message normalisé) |
 
-Le lot 4 ajoutera le cycle de vie (en cours, résolu, ignoré, régression), les
-versions et source maps, les écrans, les règles d'alerte et la purge.
+## Exploitation (schéma 002, lot 4a)
+
+| Besoin | Ce que fait Sentinel |
+|---|---|
+| Trier | non résolu → en cours → résolu / ignoré (`sentinel_set_issue_status`) ; ignorer exige un motif ; historique avec l'auteur |
+| Voir revenir | un résolu qui revient redevient non résolu : RÉGRESSION comptée, inscrite, alertée ; un ignoré n'alerte jamais |
+| Être prévenu | trois règles (`new_issue`, `regression`, `frequency`), plafond de 10 alertes par heure, résultat inscrit (`sentinel_alerts`) |
+| Ne pas tout garder | `sentinel_purge(jours)` : événements de plus de N jours (30 au moins) ; problèmes et historique restent |
+| Lire | `sentinel_issue_list`, `sentinel_issue_detail`, `sentinel_alert_rules_list` : exploitant seul |
+
+Versions et source maps viendront ensuite (lot 4b).
 
 ## Fichiers
 
@@ -32,7 +41,9 @@ src/breadcrumbs.ts  fil des dernières actions
 src/event.ts        buildEvent (SDK) et validateEvent (serveur, ne croit rien)
 src/browser.ts      SDK navigateur : écoute, dédoublonnage, débit, envoi qui ne lève jamais
 src/deno.ts         SDK Deno : withSentinel(handler) pour les edge functions
+src/lifecycle.ts    statuts, gestes proposés, règles d'alerte
 sql/001_sentinel.sql schéma de référence (problèmes, événements, débit, réception)
+sql/002_lifecycle.sql cycle de vie, régressions, règles d'alerte, purge
 test/               la preuve : chaque contrôle a été vu rouge sous sabotage
 ```
 
@@ -45,6 +56,10 @@ Vite, Node et Deno sans réécriture.
 
 ## Ce que l'hôte fournit
 
+0. **Schéma 002** : **`public.sentinel_host_is_operator() RETURNS boolean`**
+   (qui peut trier — strictement vrai ou faux) et
+   **`public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean`**
+   (l'envoi d'une alerte par le canal de l'hôte), définis AVANT `002_lifecycle.sql`.
 1. **`public.sentinel_host_tenant(p_claimed uuid, p_user uuid) RETURNS uuid`**,
    défini AVANT le schéma : la boutique de l'événement si l'utilisateur lui
    appartient, sinon NULL. Strictement — jamais la valeur prétendue telle quelle.

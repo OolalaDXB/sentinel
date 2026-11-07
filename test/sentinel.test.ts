@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   createSentinel, fingerprintOf, normalizeError, scrubText, scrubUrl, validateEvent,
-  withSentinel, SENTINEL_LIMITS, type SentinelEvent,
+  withSentinel, SENTINEL_LIMITS, type SentinelEvent, isOpenStatus, nextStatuses, statusNeedsNote,
 } from '../src/index.ts';
 
 const root = resolve(__dirname, '..');
@@ -104,5 +104,17 @@ describe('Sentinel', () => {
       expect(code(`src/${f}`), f).not.toMatch(/supabase|tenant_users|from\s+['"]@\/|sillon/i);
     }
     expect(read('sql/001_sentinel.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
+    const v2 = read('sql/002_lifecycle.sql');
+    const purge = v2.indexOf('FUNCTION public.sentinel_purge(');
+    expect(v2.slice(0, purge)).not.toMatch(/\b(drop|delete|truncate)\b/i);
+    expect(v2.slice(purge).match(/\bDELETE FROM\b/g)?.length).toBe(2);
+  });
+
+  it('cycle de vie : jamais le statut lui-même, ignorer exige un motif', () => {
+    expect(nextStatuses('resolved')).toEqual(['unresolved', 'in_progress', 'ignored']);
+    expect(statusNeedsNote('ignored')).toBe(true);
+    expect(statusNeedsNote('in_progress')).toBe(false);
+    expect(isOpenStatus('in_progress')).toBe(true);
+    expect(isOpenStatus('resolved')).toBe(false);
   });
 });

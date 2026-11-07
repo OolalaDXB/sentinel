@@ -6,3 +6,4 @@ export * from './breadcrumbs.ts';
 export * from './event.ts';
 export * from './browser.ts';
 export * from './deno.ts';
+export * from './lifecycle.ts';
