@@ -28,7 +28,15 @@ Licence : [Apache-2.0](LICENSE).
 | Ne pas tout garder | `sentinel_purge(jours)` : événements de plus de N jours (30 au moins) ; problèmes et historique restent |
 | Lire | `sentinel_issue_list`, `sentinel_issue_detail`, `sentinel_alert_rules_list` : exploitant seul |
 
-Versions et source maps viendront ensuite (lot 4b).
+## Versions et source maps (schéma 003, lot 4b)
+
+`sourcemap.ts` lit une pile minifiée avec la source map de SA version
+(`parseStackFrames`, `originalPositionFor`, `symbolicateStack`), sans
+dépendance. `isMinifiedName` écarte de l'empreinte les noms du minifieur, qui
+changent à chaque build. `003_releases.sql` : `sentinel_releases` (inscrite par
+le service), `sentinel_release_list` et `sentinel_event_stack` (exploitant).
+L'hôte garde les maps à part, jamais servies au public.
+
 
 ## Fichiers
 
@@ -44,6 +52,8 @@ src/deno.ts         SDK Deno : withSentinel(handler) pour les edge functions
 src/lifecycle.ts    statuts, gestes proposés, règles d'alerte
 sql/001_sentinel.sql schéma de référence (problèmes, événements, débit, réception)
 sql/002_lifecycle.sql cycle de vie, régressions, règles d'alerte, purge
+src/sourcemap.ts    lire une pile minifiée avec sa source map
+sql/003_releases.sql versions, piles lisibles
 test/               la preuve : chaque contrôle a été vu rouge sous sabotage
 ```
 

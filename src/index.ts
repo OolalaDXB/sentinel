@@ -7,3 +7,4 @@ export * from './event.ts';
 export * from './browser.ts';
 export * from './deno.ts';
 export * from './lifecycle.ts';
+export * from './sourcemap.ts';
