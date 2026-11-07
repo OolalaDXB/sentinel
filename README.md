@@ -5,8 +5,7 @@ code de l'hôte, un schéma SQL installé dans la base de l'hôte, et une preuve
 qui doit réussir **et** échouer. SILLON en est le premier hôte (cockpit,
 lot 3, 2026-11-07).
 
-> **Licence : à décider.** Ce dépôt est public mais ne porte pas encore de
-> licence : par défaut, tous droits réservés.
+Licence : [Apache-2.0](LICENSE).
 
 ## Ce que fait le socle (lot 3)
 
