@@ -56,6 +56,9 @@ sql/003_releases.sql versions, piles lisibles
 sql/004_release_purge.sql purge des source maps
 sql/005_db_context.sql diagnostic de base au premier événement
 sql/006_triage.sql  recherche, attribution, fusion, sourdine, retours, sessions, résumé
+sql/007_module_settings.sql interrupteurs des modules
+sql/modules/performance/001_performance.sql Web Vitals, requêtes lentes
+sql/modules/uptime/001_uptime.sql moniteurs HTTP
 src/session.ts      battement de session anonyme (santé des versions)
 sql/modules/monitors/001_monitors.sql moniteurs de tâches
 test/               tests du paquet seul
@@ -80,6 +83,9 @@ strictement vrai ou faux, jamais NULL.
 | `public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean` | 002 (obligatoire) | envoie une alerte par le canal de l'hôte ; vrai si partie ; ne lève jamais. `p_kind` : `new_issue`, `regression`, `frequency`, et `weekly` (006, `p_issue` NULL) |
 | `public.sentinel_host_db_context(p_text text, p_resource text, p_seen_at timestamptz) RETURNS jsonb` | 005 (facultatif) | diagnostic de base d'un problème : règles d'accès, droits, migration qui touche l'objet. Absent ⇒ rien n'est rempli |
 | `public.sentinel_host_operators()` → `TABLE (user_id uuid, label text)` | 006 (facultatif) | les exploitants à qui un problème peut être attribué. Absent ⇒ personne n'est désignable |
+| `public.sentinel_host_slow_operations(p_since timestamptz)` → `TABLE (operation text, duration_ms integer, at timestamptz, actor_key text, actor_label text)` | module performance (facultatif) | le journal des lenteurs DE L'HÔTE, avec l'acteur ; absent ⇒ « non disponible » |
+| `public.sentinel_host_http_request(p_url text, p_timeout_ms integer) RETURNS bigint` | module uptime (facultatif) | part une requête GET SANS attendre et rend sa référence |
+| `public.sentinel_host_http_responses(p_refs bigint[])` → `TABLE (ref bigint, status_code integer, error text, timed_out boolean, responded_at timestamptz)` | module uptime (facultatif) | les réponses arrivées : la PREUVE ; absentes une heure ⇒ échec |
 | `public.sentinel_host_monitor_proofs()` → `TABLE (name text, last_success_at timestamptz, last_failure_at timestamptz, last_error text, observed_every_minutes integer)` | module moniteurs | les PREUVES de passage des tâches planifiées. Absent ⇒ le module ne fait rien |
 
 Le schéma 002 utilise aussi `auth.uid()` pour nommer l'auteur d'un geste :
@@ -134,6 +140,12 @@ l'importe jamais ; absent, rien ne casse. Interrupteur en base :
 `sentinel_settings` (clé du module), éteint par défaut.
 
 - `monitors` — tâches muettes (lot 2).
+- `performance` — Web Vitals par route et version (histogramme de classes de
+  10 %, p50 / p75 / p95, régression du p75 au-delà de +20 %), requêtes lentes
+  lues chez l'hôte avec leur acteur (lot 4). `collectWebVitals`,
+  `normalizeRoute` ; interrupteur `vitals_check`.
+- `uptime` — moniteurs HTTP : la preuve est la réponse, N échecs d'affilée ⇒
+  problème `uptime_down`, rétabli ⇒ résolu (lot 4). Interrupteur `http_monitors`.
 
 ## Tests
 
