@@ -7,11 +7,12 @@
  * problème auquel son événement s'ajoute.
  */
 import { fingerprintOf } from './fingerprint.ts';
+import { cleanDataFailure, redactValues } from './data.ts';
 import { classify, normalizeError } from './normalize.ts';
 import { scrubContext, scrubText, scrubUrl } from './scrub.ts';
 import {
   SENTINEL_ERROR_TYPES, SENTINEL_LIMITS, SENTINEL_SURFACES,
-  type NormalizedError, type SentinelBreadcrumb, type SentinelEvent, type SentinelSurface,
+  type NormalizedError, type SentinelBreadcrumb, type SentinelDataFailure, type SentinelEvent, type SentinelSurface,
 } from './types.ts';
 
 const L = SENTINEL_LIMITS;
@@ -63,15 +64,36 @@ export interface BuildInput {
   now?: Date;
   /** Erreur de rendu React : la catégorie vient de l'appelant. */
   render?: boolean;
+  /** Refus de données : il fonde l'empreinte et entre dans le contexte. */
+  data?: SentinelDataFailure | null;
 }
 
 export function buildEvent(input: BuildInput): SentinelEvent {
   const normalized = cleanError(normalizeError(input.error));
-  const error = input.render && normalized.type !== 'permission_denied' && normalized.type !== 'database'
-    ? { ...normalized, type: 'render' as const } : normalized;
+  const data = cleanDataFailure(input.data);
+  // Un refus de données est une erreur de base, sauf un refus de droits.
+  // Ses valeurs ne sortent pas : message et indice expurgés, détail retiré —
+  // c'est là que la base recopie une ligne (« Key (email)=(…) »).
+  const error = data
+    ? {
+      ...normalized,
+      type: normalized.type === 'permission_denied' ? normalized.type : 'database' as const,
+      message: redactValues(normalized.message),
+      hint: normalized.hint ? redactValues(normalized.hint) : null,
+      details: null,
+    }
+    : input.render && normalized.type !== 'permission_denied' && normalized.type !== 'database'
+      ? { ...normalized, type: 'render' as const } : normalized;
+  const context = scrubContext(input.context, L.contextKeys, L.contextValue);
+  if (data) {
+    // Le contexte est ce que la base garde : l'objet et l'opération y entrent.
+    context.resource = data.resource;
+    context.operation = data.operation;
+    context.status = data.status;
+  }
   return {
     v: 1,
-    fingerprint: fingerprintOf(error),
+    fingerprint: fingerprintOf(error, data),
     occurred_at: (input.now ?? new Date()).toISOString(),
     release: input.release ? scrubText(input.release, 64) : null,
     environment: scrubText(input.environment ?? 'production', 32),
@@ -80,7 +102,8 @@ export function buildEvent(input: BuildInput): SentinelEvent {
     url: scrubUrl(input.url, L.url),
     claimed_tenant: input.claimedTenant && UUID.test(input.claimedTenant) ? input.claimedTenant.toLowerCase() : null,
     breadcrumbs: cleanBreadcrumbs(input.breadcrumbs),
-    context: scrubContext(input.context, L.contextKeys, L.contextValue),
+    context,
+    ...(data ? { data } : {}),
   };
 }
 
@@ -119,6 +142,7 @@ export function validateEvent(raw: string, now: Date = new Date()): ValidateResu
     // L'heure du serveur fait foi : une horloge de navigateur ment.
     now,
     render: declaredType === 'render',
+    data: b.data && typeof b.data === 'object' ? cleanDataFailure(b.data as Record<string, unknown>) : null,
   });
   return { ok: true, event };
 }

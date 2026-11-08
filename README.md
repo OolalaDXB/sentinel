@@ -5,8 +5,6 @@ code de l'hôte, un schéma SQL installé dans la base de l'hôte, et une preuve
 qui doit réussir **et** échouer. SILLON en est le premier hôte (cockpit,
 lot 3, 2026-11-07).
 
-Licence : [Apache-2.0](LICENSE).
-
 ## Ce que fait le socle (lot 3)
 
 | Problème constaté dans SILLON | Ce que fait Sentinel |
@@ -37,17 +35,6 @@ changent à chaque build. `003_releases.sql` : `sentinel_releases` (inscrite par
 le service), `sentinel_release_list` et `sentinel_event_stack` (exploitant).
 L'hôte garde les maps à part, jamais servies au public.
 
-## Purge des source maps (schéma 004)
-
-`004_release_purge.sql` : une version garde ses maps tant qu'elles peuvent
-servir — parmi les 10 dernières (3 au moins), inscrite depuis moins de 14 jours
-(7 au moins), ou portant un événement encore gardé.
-`sentinel_release_purge_candidates` dit qui peut partir ; l'hôte retire les
-fichiers de son stockage, RELIT, puis `sentinel_release_mark_purged` inscrit ce
-qui reste vraiment (`purged_at` quand plus rien). La ligne de la version reste ;
-une version redéposée redevient lisible. Service seul.
-
-
 ## Fichiers
 
 ```
@@ -63,42 +50,80 @@ src/lifecycle.ts    statuts, gestes proposés, règles d'alerte
 sql/001_sentinel.sql schéma de référence (problèmes, événements, débit, réception)
 sql/002_lifecycle.sql cycle de vie, régressions, règles d'alerte, purge
 src/sourcemap.ts    lire une pile minifiée avec sa source map
+src/data.ts         refus de données : objet, opération, code, valeurs expurgées
+src/modules/monitors règle d'état d'un moniteur (module facultatif)
 sql/003_releases.sql versions, piles lisibles
 sql/004_release_purge.sql purge des source maps
-test/               la preuve : chaque contrôle a été vu rouge sous sabotage
-```
-
-```bash
-npm ci && npm run typecheck && npm test
+sql/005_db_context.sql diagnostic de base au premier événement
+sql/modules/monitors/001_monitors.sql moniteurs de tâches
+test/               tests du paquet seul
 ```
 
 Les imports internes portent l'extension `.ts` : le même code tourne sous
 Vite, Node et Deno sans réécriture.
 
-## Ce que l'hôte fournit
+## Contrat de l'hôte
 
-0. **Schéma 002** : **`public.sentinel_host_is_operator() RETURNS boolean`**
-   (qui peut trier — strictement vrai ou faux) et
-   **`public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean`**
-   (l'envoi d'une alerte par le canal de l'hôte), définis AVANT `002_lifecycle.sql`.
-1. **`public.sentinel_host_tenant(p_claimed uuid, p_user uuid) RETURNS uuid`**,
-   défini AVANT le schéma : la boutique de l'événement si l'utilisateur lui
-   appartient, sinon NULL. Strictement — jamais la valeur prétendue telle quelle.
-2. **Une fonction de réception** qui valide le corps (`validateEvent`), lit
+Tout ce qui dépend d'un hôte passe par ces crochets, et par eux seuls. Le
+paquet n'en suppose aucun autre ; `sentinel-extractability.test.ts` (dans le
+premier hôte) rougit sur un crochet utilisé sans être déclaré ici. Chaque
+crochet est une fonction SQL `public`, `SECURITY DEFINER`, sans droit pour
+les rôles clients, définie AVANT le schéma qui l'appelle. Une garde rend
+strictement vrai ou faux, jamais NULL.
+
+| Crochet | Requis par | Rôle |
+|---|---|---|
+| `public.sentinel_host_tenant(p_claimed uuid, p_user uuid) RETURNS uuid` | 001 (obligatoire) | le tenant de l'événement si l'utilisateur lui appartient, sinon NULL — jamais la valeur prétendue telle quelle |
+| `public.sentinel_host_is_operator() RETURNS boolean` | 002 (obligatoire) | l'appelant courant peut-il trier (strictement vrai ou faux) |
+| `public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean` | 002 (obligatoire) | envoie une alerte par le canal de l'hôte ; vrai si partie ; ne lève jamais |
+| `public.sentinel_host_db_context(p_text text, p_resource text, p_seen_at timestamptz) RETURNS jsonb` | 005 (facultatif) | diagnostic de base d'un problème : règles d'accès, droits, migration qui touche l'objet. Absent ⇒ rien n'est rempli |
+| `public.sentinel_host_monitor_proofs()` → `TABLE (name text, last_success_at timestamptz, last_failure_at timestamptz, last_error text, observed_every_minutes integer)` | module moniteurs | les PREUVES de passage des tâches planifiées. Absent ⇒ le module ne fait rien |
+
+Le schéma 002 utilise aussi `auth.uid()` pour nommer l'auteur d'un geste :
+un hôte qui n'a pas ce schéma le définit (rendre NULL suffit).
+
+Côté code, l'hôte fournit :
+
+1. **Une fonction de réception** qui valide le corps (`validateEvent`), lit
    l'utilisateur dans le jeton VÉRIFIÉ (jamais dans le corps), choisit une clé
    de débit (utilisateur, à défaut empreinte de l'adresse IP) et appelle
    `sentinel_ingest` en service_role.
-3. **Le contexte** du SDK : surface d'une adresse, version déployée, jeton de
-   session, boutique affichée.
+2. **Le contexte** du SDK navigateur : surface d'une adresse, version
+   déployée, jeton de session, tenant affiché.
+3. **Pour les fonctions serveur** (`withSentinel`, `must`) : un écrivain
+   (`write`), un interrupteur (`enabled`), et `defer` pour qu'un envoi
+   survive à la réponse. L'enrobage ne change JAMAIS une réponse : il relève
+   la même exception, rend le même objet `Response`, n'attend aucun envoi.
+4. **Pour les refus de données du navigateur** : un point d'observation des
+   réponses du client de base qui appelle `captureDataFailure` — objet,
+   opération, statut, code ; jamais une valeur.
 
-Dans SILLON : migration `20261107160000_sentinel_foundation.sql` (crochet +
-ce schéma recopié à l'identique), edge function `sentinel-ingest`,
-`src/lib/sentinel-client.ts`.
+## Échecs silencieux (schéma 005 et module moniteurs, lot 2)
 
-## Ce dépôt et SILLON
+| Besoin | Ce que fait Sentinel |
+|---|---|
+| Un refus d'écriture que personne ne lit | `captureDataFailure` / `must` : empreinte OBJET + OPÉRATION + CODE ; message expurgé de ses valeurs, détail retiré |
+| Une écriture qui devait toucher une ligne | `must(…, { expectRows: true })` : code `SENTINEL_NO_ROWS` |
+| Une fonction serveur qui rend 5xx sans lever | `withSentinel` l'inscrit, rend la même réponse |
+| Savoir quoi corriger côté base | `db_context` posé au premier événement par `sentinel_host_db_context` |
+| Une tâche planifiée devenue muette | module `monitors` : retard ou échec ⇒ UN problème `monitor_missed:` / `monitor_failed:` ; « Éprouver » vérifie que l'alerte part |
 
-Ce dépôt est la SOURCE. SILLON en garde une copie dans `packages/sentinel`,
-puis la recopie à l'identique pour ses edge functions
-(`scripts/sentinel-sync.mjs`) et dans sa migration ; ses propres tests
-vérifient l'égalité des copies. Une modification se fait ici, puis se reporte
-dans SILLON.
+## Modules
+
+Un module est FACULTATIF : `src/modules/<nom>/` (règle pure, alias
+`@sentinel/<nom>` chez l'hôte) et `sql/modules/<nom>/` (schéma). Le cœur ne
+l'importe jamais ; absent, rien ne casse. Interrupteur en base :
+`sentinel_settings` (clé du module), éteint par défaut.
+
+- `monitors` — tâches muettes (lot 2).
+
+## Tests
+
+`npx vitest run packages/sentinel` : tests du paquet seul, imports relatifs.
+
+## Mettre à jour
+
+Modifier le dépôt `sentinel`, puis recopier ici `src/`, `sql/` et `test/`,
+lancer `npm run sync:sentinel` et reporter chaque nouveau fichier `sql/…`
+entre les marqueurs `sentinel:sql:<nom>` d'une nouvelle migration : les tests
+de l'hôte vérifient l'égalité.

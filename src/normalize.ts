@@ -1,8 +1,8 @@
 /**
  * Une erreur, quelle que soit sa forme, devient un `NormalizedError`.
  *
- * Origine : 9 erreurs du journal SILLON portaient le message
- * « [object Object] ». Une erreur Supabase (PostgrestError) est un OBJET, pas
+ * Origine : 9 erreurs du journal du premier hôte portaient le message
+ * « [object Object] ». Une erreur d'un client de base (PostgrestError) est un OBJET, pas
  * une `Error` : `String(err)` le rendait illisible et perdait son code,
  * son détail et son indice — exactement ce qui dit quoi faire.
  */

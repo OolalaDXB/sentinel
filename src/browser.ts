@@ -9,9 +9,10 @@
  *   incident : l'hôte recharge déjà la page.
  */
 import { BreadcrumbTrail } from './breadcrumbs.ts';
+import { dataFailureError, type DataFailureInput } from './data.ts';
 import { buildEvent } from './event.ts';
 import { isStaleChunk, normalizeError } from './normalize.ts';
-import type { SentinelEvent, SentinelSurface } from './types.ts';
+import type { SentinelDataFailure, SentinelEvent, SentinelSurface } from './types.ts';
 
 export interface SentinelOptions {
   endpoint: string;
@@ -35,6 +36,11 @@ export interface SentinelOptions {
 
 export interface Sentinel {
   captureException(error: unknown, extra?: { context?: Record<string, unknown>; render?: boolean }): SentinelEvent | null;
+  /**
+   * Un refus de données que personne ne lit (schéma 005). Même dédoublonnage
+   * et même débit qu'une exception ; ne lève jamais.
+   */
+  captureDataFailure(input: DataFailureInput): SentinelEvent | null;
   addBreadcrumb(category: 'navigation' | 'query' | 'action' | 'log', message: string): void;
   /** Branche l'écoute globale ; rend la fonction qui la débranche. */
   install(target: Pick<Window, 'addEventListener' | 'removeEventListener' | 'location'>): () => void;
@@ -61,7 +67,7 @@ export function createSentinel(options: SentinelOptions): Sentinel {
     }
   };
 
-  const captureException: Sentinel['captureException'] = (error, extra) => {
+  const capture = (error: unknown, extra?: { context?: Record<string, unknown>; render?: boolean; data?: SentinelDataFailure }) => {
     try {
       const n = normalizeError(error);
       if (isStaleChunk(n.message)) return null;
@@ -79,6 +85,7 @@ export function createSentinel(options: SentinelOptions): Sentinel {
         context: { ...(scope.context ?? {}), ...(extra?.context ?? {}) },
         now: new Date(now()),
         render: extra?.render,
+        data: extra?.data,
       });
       const t = now();
       const prev = lastSent.get(event.fingerprint);
@@ -94,8 +101,20 @@ export function createSentinel(options: SentinelOptions): Sentinel {
     }
   };
 
+  const captureException: Sentinel['captureException'] = (error, extra) => capture(error, extra);
+
+  const captureDataFailure: Sentinel['captureDataFailure'] = (input) => {
+    try {
+      const built = dataFailureError(input);
+      return built ? capture(built.error, { data: built.data }) : null;
+    } catch {
+      return null;
+    }
+  };
+
   return {
     captureException,
+    captureDataFailure,
     addBreadcrumb(category, message) {
       trail.add(category, message);
     },

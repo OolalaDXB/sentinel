@@ -91,21 +91,23 @@ describe('Sentinel', () => {
     expect(() => broken.captureException(new Error('y'))).not.toThrow();
   });
 
-  it('SDK Deno : une erreur levée devient un événement « edge » et un 500 sans détail', async () => {
+  it('SDK Deno : une erreur levée devient un événement « edge », puis est RELEVÉE telle quelle (schéma 005)', async () => {
     const written: SentinelEvent[] = [];
-    const h = withSentinel(async () => { throw Object.assign(new Error('relation "x" does not exist'), { code: '42P01' }); },
+    const boom = Object.assign(new Error('relation "x" does not exist'), { code: '42P01' });
+    const h = withSentinel(async () => { throw boom; },
       { functionName: 'demo', write: async (e) => { written.push(e); } });
-    const res = await h(new Request('https://f/functions/v1/demo?secret=1'));
-    expect(res.status).toBe(500);
-    expect(await res.text()).not.toMatch(/relation/);
+    await expect(h(new Request('https://f/functions/v1/demo?secret=1'))).rejects.toBe(boom);
+    await new Promise((r) => setTimeout(r, 0));
     expect(written[0]).toMatchObject({ surface: 'edge', url: '/functions/v1/demo', context: { function: 'demo' } });
   });
 
   it('le paquet ne connaît aucun hôte, et son schéma ne supprime rien', () => {
-    for (const f of readdirSync(resolve(root, 'src'))) {
+    for (const f of readdirSync(resolve(root, 'src')).filter((n) => n.endsWith('.ts'))) {
       expect(code(`src/${f}`), f).not.toMatch(/supabase|tenant_users|from\s+['"]@\/|sillon/i);
     }
     expect(read('sql/001_sentinel.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
+    expect(read('sql/005_db_context.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
+    expect(read('sql/modules/monitors/001_monitors.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
     const v2 = read('sql/002_lifecycle.sql');
     const purge = v2.indexOf('FUNCTION public.sentinel_purge(');
     expect(v2.slice(0, purge)).not.toMatch(/\b(drop|delete|truncate)\b/i);
