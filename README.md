@@ -37,6 +37,16 @@ changent à chaque build. `003_releases.sql` : `sentinel_releases` (inscrite par
 le service), `sentinel_release_list` et `sentinel_event_stack` (exploitant).
 L'hôte garde les maps à part, jamais servies au public.
 
+## Purge des source maps (schéma 004)
+
+`004_release_purge.sql` : une version garde ses maps tant qu'elles peuvent
+servir — parmi les 10 dernières (3 au moins), inscrite depuis moins de 14 jours
+(7 au moins), ou portant un événement encore gardé.
+`sentinel_release_purge_candidates` dit qui peut partir ; l'hôte retire les
+fichiers de son stockage, RELIT, puis `sentinel_release_mark_purged` inscrit ce
+qui reste vraiment (`purged_at` quand plus rien). La ligne de la version reste ;
+une version redéposée redevient lisible. Service seul.
+
 
 ## Fichiers
 
@@ -54,6 +64,7 @@ sql/001_sentinel.sql schéma de référence (problèmes, événements, débit, r
 sql/002_lifecycle.sql cycle de vie, régressions, règles d'alerte, purge
 src/sourcemap.ts    lire une pile minifiée avec sa source map
 sql/003_releases.sql versions, piles lisibles
+sql/004_release_purge.sql purge des source maps
 test/               la preuve : chaque contrôle a été vu rouge sous sabotage
 ```
 
