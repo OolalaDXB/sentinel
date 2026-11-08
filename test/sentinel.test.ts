@@ -107,6 +107,7 @@ describe('Sentinel', () => {
     }
     expect(read('sql/001_sentinel.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
     expect(read('sql/005_db_context.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
+    expect(read('sql/006_triage.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
     expect(read('sql/modules/monitors/001_monitors.sql')).not.toMatch(/\b(drop|delete|truncate)\b/i);
     const v2 = read('sql/002_lifecycle.sql');
     const purge = v2.indexOf('FUNCTION public.sentinel_purge(');
