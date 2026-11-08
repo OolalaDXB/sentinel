@@ -112,6 +112,18 @@ describe('Sentinel', () => {
     expect(v2.slice(purge).match(/\bDELETE FROM\b/g)?.length).toBe(2);
   });
 
+  it('purge des maps (004) : rien ne se supprime en base, service seul', () => {
+    const v4 = read('sql/004_release_purge.sql');
+    expect(v4).not.toMatch(/\b(drop|delete|truncate)\b/i);
+    for (const fn of ['sentinel_release_purge_candidates', 'sentinel_release_mark_purged', 'sentinel_release_register']) {
+      expect(v4, fn).toMatch(new RegExp(`REVOKE ALL ON FUNCTION public\\.${fn}\\([^)]*\\) FROM PUBLIC, anon, authenticated;`));
+      expect(v4, fn).toMatch(new RegExp(`GRANT EXECUTE ON FUNCTION public\\.${fn}\\([^)]*\\) TO service_role;`));
+    }
+    expect(v4).toMatch(/greatest\(coalesce\(p_keep_latest, 10\), 3\)/);
+    expect(v4).toMatch(/greatest\(coalesce\(p_min_age_days, 14\), 7\)/);
+    expect(v4).toMatch(/NOT EXISTS \(SELECT 1 FROM public\.sentinel_events e WHERE e\.release = r\.release\)/);
+  });
+
   it('cycle de vie : jamais le statut lui-même, ignorer exige un motif', () => {
     expect(nextStatuses('resolved')).toEqual(['unresolved', 'in_progress', 'ignored']);
     expect(statusNeedsNote('ignored')).toBe(true);
