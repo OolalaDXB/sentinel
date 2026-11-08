@@ -75,6 +75,24 @@ npm ci && npm run typecheck && npm test
 Les imports internes portent l'extension `.ts` : le même code tourne sous
 Vite, Node et Deno sans réécriture.
 
+## Capture des échecs silencieux (lot 2 en cours)
+
+Le SDK Deno expose `withSentinel(handler, options)` : les exceptions et désormais
+les réponses HTTP 5xx sont capturées, sans lire le corps de la réponse et sans
+modifier la réponse originale du handler. Une panne de l'écrivain Sentinel n'est
+jamais une panne supplémentaire pour l'application.
+
+`must(result, options, request?, details?)` enregistre une propriété `error`
+non nulle dans un résultat (par exemple PostgREST) même si l'appelant ne la
+consulte pas ; il rend exactement ce même résultat. Les noms d'objet et d'opération
+sont fournis par l'hôte, jamais les valeurs des lignes.
+
+**Limites actuelles :** `withSentinel` doit être installé par l'hôte ;
+`must` doit être appelé explicitement ; une écriture réussie à zéro ligne
+nécessite encore un contrôle métier dédié ; aucun diagnostic de schéma, moniteur,
+ou branchement généralisé n'est fourni par cette première tranche.
+Les tests de cette tranche sont dans `test/edge-silent.test.ts`.
+
 ## Ce que l'hôte fournit
 
 0. **Schéma 002** : **`public.sentinel_host_is_operator() RETURNS boolean`**
