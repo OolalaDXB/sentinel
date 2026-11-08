@@ -55,6 +55,8 @@ src/modules/monitors règle d'état d'un moniteur (module facultatif)
 sql/003_releases.sql versions, piles lisibles
 sql/004_release_purge.sql purge des source maps
 sql/005_db_context.sql diagnostic de base au premier événement
+sql/006_triage.sql  recherche, attribution, fusion, sourdine, retours, sessions, résumé
+src/session.ts      battement de session anonyme (santé des versions)
 sql/modules/monitors/001_monitors.sql moniteurs de tâches
 test/               tests du paquet seul
 ```
@@ -75,8 +77,9 @@ strictement vrai ou faux, jamais NULL.
 |---|---|---|
 | `public.sentinel_host_tenant(p_claimed uuid, p_user uuid) RETURNS uuid` | 001 (obligatoire) | le tenant de l'événement si l'utilisateur lui appartient, sinon NULL — jamais la valeur prétendue telle quelle |
 | `public.sentinel_host_is_operator() RETURNS boolean` | 002 (obligatoire) | l'appelant courant peut-il trier (strictement vrai ou faux) |
-| `public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean` | 002 (obligatoire) | envoie une alerte par le canal de l'hôte ; vrai si partie ; ne lève jamais |
+| `public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean` | 002 (obligatoire) | envoie une alerte par le canal de l'hôte ; vrai si partie ; ne lève jamais. `p_kind` : `new_issue`, `regression`, `frequency`, et `weekly` (006, `p_issue` NULL) |
 | `public.sentinel_host_db_context(p_text text, p_resource text, p_seen_at timestamptz) RETURNS jsonb` | 005 (facultatif) | diagnostic de base d'un problème : règles d'accès, droits, migration qui touche l'objet. Absent ⇒ rien n'est rempli |
+| `public.sentinel_host_operators()` → `TABLE (user_id uuid, label text)` | 006 (facultatif) | les exploitants à qui un problème peut être attribué. Absent ⇒ personne n'est désignable |
 | `public.sentinel_host_monitor_proofs()` → `TABLE (name text, last_success_at timestamptz, last_failure_at timestamptz, last_error text, observed_every_minutes integer)` | module moniteurs | les PREUVES de passage des tâches planifiées. Absent ⇒ le module ne fait rien |
 
 Le schéma 002 utilise aussi `auth.uid()` pour nommer l'auteur d'un geste :
@@ -107,6 +110,21 @@ Côté code, l'hôte fournit :
 | Une fonction serveur qui rend 5xx sans lever | `withSentinel` l'inscrit, rend la même réponse |
 | Savoir quoi corriger côté base | `db_context` posé au premier événement par `sentinel_host_db_context` |
 | Une tâche planifiée devenue muette | module `monitors` : retard ou échec ⇒ UN problème `monitor_missed:` / `monitor_failed:` ; « Éprouver » vérifie que l'alerte part |
+
+## Trier comme une équipe (schéma 006, lot 3)
+
+| Besoin | Ce que fait Sentinel |
+|---|---|
+| Retrouver un problème | `sentinel_issue_search(filtres, curseur, limite)` : texte, statuts, surface, tenant, version, période, « assigné à moi », régressions ouvertes ; curseur `(last_seen_at, id)` ; comptes par statut |
+| Se répartir le travail | `sentinel_issue_assign`, `sentinel_issue_comment`, journal `sentinel_issue_activity` |
+| Deux empreintes, un seul défaut | `sentinel_issue_merge(source, cible)` : alias d'empreinte ; les événements à venir vont à la cible ; `sentinel_issue_unmerge` rend l'état d'avant ; ni chaîne ni cycle |
+| Faire taire un bruit connu | `sentinel_issue_mute(problème, jusqu'au, N événements)` ; compté, jamais alerté ; une régression lève la sourdine |
+| Santé d'une version | `createSessionHealth` (navigateur) : un battement ANONYME par session et par version, « crashed » sur erreur non attrapée ; `sentinel_release_health` : taux sans plantage, NULL sans session |
+| Ce que l'utilisateur faisait | chaque événement porte `context.client_event_id` (tiré au hasard) ; `sentinel_feedback_submit` rattache un retour à CET événement, une fois, dans l'heure |
+| La semaine en une lecture | `sentinel_weekly_digest(fuseau, heure)` : le lundi, une fois, par `sentinel_host_alert('weekly', …)` ; interrupteur `weekly_digest` |
+
+La réception version 6 résout les alias et applique la sourdine. Aucune
+fonction ne supprime : défaire une fusion désactive l'alias.
 
 ## Modules
 

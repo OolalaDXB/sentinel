@@ -6,6 +6,7 @@ export * from './breadcrumbs.ts';
 export * from './data.ts';
 export * from './event.ts';
 export * from './browser.ts';
+export * from './session.ts';
 export * from './deno.ts';
 export * from './lifecycle.ts';
 export * from './sourcemap.ts';

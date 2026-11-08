@@ -28,6 +28,11 @@ export interface SentinelOptions {
   dedupeMs?: number;
   /** Erreurs à ignorer, par message. */
   ignore?: RegExp[];
+  /**
+   * Appelé (sans jamais lever) quand une erreur NON attrapée remonte à
+   * l'écoute globale : l'hôte y marque la session « plantée ».
+   */
+  onUnhandled?: () => void;
   /** Remplace l'envoi (tests). */
   transport?: (event: SentinelEvent, headers: Record<string, string>) => Promise<void> | void;
   now?: () => number;
@@ -44,6 +49,19 @@ export interface Sentinel {
   addBreadcrumb(category: 'navigation' | 'query' | 'action' | 'log', message: string): void;
   /** Branche l'écoute globale ; rend la fonction qui la débranche. */
   install(target: Pick<Window, 'addEventListener' | 'removeEventListener' | 'location'>): () => void;
+}
+
+/** Identifiant v4 ; `crypto.randomUUID` quand il existe, sinon tiré au hasard. */
+export function randomId(random: () => number = Math.random): string {
+  try {
+    const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+    if (c?.randomUUID) return c.randomUUID();
+  } catch { /* repli ci-dessous */ }
+  const h = Array.from({ length: 32 }, () => Math.floor(random() * 16).toString(16));
+  h[12] = '4';
+  h[16] = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
+  const s = h.join('');
+  return `${s.slice(0, 8)}-${s.slice(8, 12)}-${s.slice(12, 16)}-${s.slice(16, 20)}-${s.slice(20)}`;
 }
 
 export function createSentinel(options: SentinelOptions): Sentinel {
@@ -82,7 +100,9 @@ export function createSentinel(options: SentinelOptions): Sentinel {
         url: currentUrl,
         claimedTenant: scope.claimedTenant,
         breadcrumbs: trail.list(),
-        context: { ...(scope.context ?? {}), ...(extra?.context ?? {}) },
+        // Un identifiant tiré ICI, sans lien avec la personne : il permet de
+        // rattacher un retour utilisateur à CET événement (schéma 006).
+        context: { ...(scope.context ?? {}), ...(extra?.context ?? {}), client_event_id: randomId(random) },
         now: new Date(now()),
         render: extra?.render,
         data: extra?.data,
@@ -120,12 +140,15 @@ export function createSentinel(options: SentinelOptions): Sentinel {
     },
     install(target) {
       currentUrl = target.location?.href ?? null;
+      const unhandled = () => { try { options.onUnhandled?.(); } catch { /* jamais bloquant */ } };
       const onError = (e: Event) => {
         const ev = e as ErrorEvent;
         captureException(ev.error ?? ev.message ?? 'Erreur JavaScript');
+        unhandled();
       };
       const onRejection = (e: Event) => {
         captureException((e as PromiseRejectionEvent).reason ?? 'Promesse rejetée sans raison');
+        unhandled();
       };
       const onNavigate = () => {
         currentUrl = target.location?.href ?? null;
