@@ -59,6 +59,8 @@ sql/006_triage.sql  recherche, attribution, fusion, sourdine, retours, sessions,
 sql/007_module_settings.sql interrupteurs des modules
 sql/modules/performance/001_performance.sql Web Vitals, requêtes lentes
 sql/modules/uptime/001_uptime.sql moniteurs HTTP
+sql/modules/uptime/002_purge.sql purge des vérifications (mot de suppression)
+sql/modules/guard/001_guard.sql rapports d'un garde de RLS
 src/session.ts      battement de session anonyme (santé des versions)
 sql/modules/monitors/001_monitors.sql moniteurs de tâches
 test/               tests du paquet seul
@@ -80,12 +82,13 @@ strictement vrai ou faux, jamais NULL.
 |---|---|---|
 | `public.sentinel_host_tenant(p_claimed uuid, p_user uuid) RETURNS uuid` | 001 (obligatoire) | le tenant de l'événement si l'utilisateur lui appartient, sinon NULL — jamais la valeur prétendue telle quelle |
 | `public.sentinel_host_is_operator() RETURNS boolean` | 002 (obligatoire) | l'appelant courant peut-il trier (strictement vrai ou faux) |
-| `public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean` | 002 (obligatoire) | envoie une alerte par le canal de l'hôte ; vrai si partie ; ne lève jamais. `p_kind` : `new_issue`, `regression`, `frequency`, et `weekly` (006, `p_issue` NULL) |
+| `public.sentinel_host_alert(p_kind text, p_issue uuid, p_payload jsonb) RETURNS boolean` | 002 (obligatoire) | envoie une alerte par le canal de l'hôte ; vrai si partie ; ne lève jamais. `p_kind` : `new_issue`, `regression`, `frequency`, `weekly` (006) et `guard_block` (module guard), ces deux derniers avec `p_issue` NULL |
 | `public.sentinel_host_db_context(p_text text, p_resource text, p_seen_at timestamptz) RETURNS jsonb` | 005 (facultatif) | diagnostic de base d'un problème : règles d'accès, droits, migration qui touche l'objet. Absent ⇒ rien n'est rempli |
 | `public.sentinel_host_operators()` → `TABLE (user_id uuid, label text)` | 006 (facultatif) | les exploitants à qui un problème peut être attribué. Absent ⇒ personne n'est désignable |
 | `public.sentinel_host_slow_operations(p_since timestamptz)` → `TABLE (operation text, duration_ms integer, at timestamptz, actor_key text, actor_label text)` | module performance (facultatif) | le journal des lenteurs DE L'HÔTE, avec l'acteur ; absent ⇒ « non disponible » |
 | `public.sentinel_host_http_request(p_url text, p_timeout_ms integer) RETURNS bigint` | module uptime (facultatif) | part une requête GET SANS attendre et rend sa référence |
 | `public.sentinel_host_http_responses(p_refs bigint[])` → `TABLE (ref bigint, status_code integer, error text, timed_out boolean, responded_at timestamptz)` | module uptime (facultatif) | les réponses arrivées : la PREUVE ; absentes une heure ⇒ échec |
+| `public.sentinel_host_guard_history()` → `TABLE (source text, verdict text, run_at timestamptz, summary jsonb, run_url text)` | module guard (facultatif) | le dernier verdict de chaque contrôle que l'hôte tenait déjà ; absent ⇒ pas d'historique |
 | `public.sentinel_host_monitor_proofs()` → `TABLE (name text, last_success_at timestamptz, last_failure_at timestamptz, last_error text, observed_every_minutes integer)` | module moniteurs | les PREUVES de passage des tâches planifiées. Absent ⇒ le module ne fait rien |
 
 Le schéma 002 utilise aussi `auth.uid()` pour nommer l'auteur d'un geste :
@@ -146,6 +149,16 @@ l'importe jamais ; absent, rien ne casse. Interrupteur en base :
   `normalizeRoute` ; interrupteur `vitals_check`.
 - `uptime` — moniteurs HTTP : la preuve est la réponse, N échecs d'affilée ⇒
   problème `uptime_down`, rétabli ⇒ résolu (lot 4). Interrupteur `http_monitors`.
+  Schéma 002 : `sentinel_http_checks_purge(jours)`, 30 jours au moins — il
+  contient un mot de suppression, à poser sous l'enveloppe de l'hôte (lot 5).
+- `guard` — les rapports d'un garde de RLS, au format EXACT
+  `rls-guard-evidence/1` (lot 5). Le module ne lit que cette SORTIE, il
+  n'importe rien de l'outil. Une erreur (code 2) s'inscrit `error`, jamais
+  `pass` ; `not-run` n'est jamais un succès ; une violation, sans identifiant,
+  a pour empreinte invariant + texte normalisé ; nouvelle, revenue ou résolue
+  puis présente ⇒ problème `guard_finding:` ; disparue ⇒ « absente depuis »,
+  jamais résolue d'office ; bloquant ⇒ `sentinel_host_alert('guard_block')`.
+  `parseGuardSubmission` refuse tôt ; la base revérifie tout.
 
 ## Tests
 
