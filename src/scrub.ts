@@ -1,8 +1,8 @@
 /**
  * Ce qui ne sort jamais du navigateur, et que le serveur retire une seconde
- * fois : adresses e-mail, jetons (JWT, Bearer, clés Supabase, longues chaînes
+ * fois : adresses e-mail, jetons (JWT, Bearer, clés de fournisseurs, longues chaînes
  * aléatoires), requête et fragment d'une adresse — un lien magique porte son
- * jeton d'accès dans le fragment (incident SILLON du 2026-11-07).
+ * jeton d'accès dans le fragment (incident du premier hôte, 2026-11-07).
  */
 
 const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;

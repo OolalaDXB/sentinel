@@ -3,6 +3,7 @@ export * from './scrub.ts';
 export * from './normalize.ts';
 export * from './fingerprint.ts';
 export * from './breadcrumbs.ts';
+export * from './data.ts';
 export * from './event.ts';
 export * from './browser.ts';
 export * from './deno.ts';

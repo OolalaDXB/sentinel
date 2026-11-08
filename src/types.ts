@@ -2,9 +2,8 @@
  * Sentinel — le format commun d'un événement d'erreur.
  *
  * Module PUR, sans dépendance : il tourne dans le navigateur, sous Deno
- * (edge functions) et sous Node (tests). Un hôte (SILLON est le premier) ne
- * dépend que de ce format ; rien ici ne connaît une boutique, un tenant ni
- * Supabase.
+ * (edge functions) et sous Node (tests). Un hôte ne dépend que de ce
+ * format ; rien ici ne connaît le métier de l'hôte ni son fournisseur de base.
  */
 
 /** Où l'erreur est née. Liste FERMÉE, recopiée par la contrainte SQL. */
@@ -58,12 +57,38 @@ export interface SentinelEvent {
   error: NormalizedError;
   /** Adresse de la page SANS requête ni fragment. */
   url: string | null;
-  /** Boutique que l'hôte PRÉTEND : le serveur la vérifie, ne la croit jamais. */
+  /** Tenant que l'hôte PRÉTEND : le serveur le vérifie, ne le croit jamais. */
   claimed_tenant: string | null;
   breadcrumbs: SentinelBreadcrumb[];
   /** Clés et valeurs courtes, nettoyées. */
   context: Record<string, string | number | boolean | null>;
+  /**
+   * Refus d'une écriture ou d'une lecture de données (schéma 005) : l'objet,
+   * l'opération, le statut HTTP. Facultatif : un événement sans lui reste un
+   * événement v1. Quand il est là, l'empreinte se fonde sur lui.
+   */
+  data?: SentinelDataFailure;
 }
+
+/** Opérations sur des données. Liste FERMÉE. */
+export type SentinelDataOperation = 'select' | 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
+
+export const SENTINEL_DATA_OPERATIONS: readonly SentinelDataOperation[] = ['select', 'insert', 'update', 'upsert', 'delete', 'rpc'];
+
+/**
+ * Un refus de données : QUOI (objet), COMMENT (opération), le statut et le
+ * code. Jamais une valeur de ligne ni un filtre de requête.
+ */
+export interface SentinelDataFailure {
+  /** Nom d'une table, d'une vue ou d'une fonction : `[a-z_][a-z0-9_]*`, 63 au plus. */
+  resource: string;
+  operation: SentinelDataOperation;
+  /** Statut HTTP de la réponse, ou null hors HTTP. */
+  status: number | null;
+}
+
+/** Code d'une écriture « qui devait toucher une ligne » et n'en a touché aucune. */
+export const SENTINEL_NO_ROWS_CODE = 'SENTINEL_NO_ROWS';
 
 /** Plafonds : un événement plus gros est tronqué par le SDK, refusé par le serveur. */
 export const SENTINEL_LIMITS = {

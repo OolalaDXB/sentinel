@@ -10,7 +10,7 @@
  * et « took 12840ms » sont le même problème ; deux appelants différents d'une
  * même erreur générique ne le sont pas.
  */
-import type { NormalizedError } from './types.ts';
+import type { NormalizedError, SentinelDataFailure } from './types.ts';
 
 export function normalizeMessage(message: string): string {
   return message
@@ -60,7 +60,13 @@ export function hash32(input: string): string {
   return h.toString(16).padStart(8, '0');
 }
 
-export function fingerprintOf(error: NormalizedError): string {
+/**
+ * Un refus de données (schéma 005) se regroupe par OBJET + OPÉRATION + CODE,
+ * jamais par le message ni par la pile : deux refus de la même table, quelle
+ * que soit la ligne ou l'écran, sont le même problème.
+ */
+export function fingerprintOf(error: NormalizedError, data?: SentinelDataFailure | null): string {
+  if (data) return `${error.type}:${hash32(`data|${data.resource}|${data.operation}|${error.code ?? ''}`)}`;
   const frames = stackFunctions(error.stack);
   const basis = frames.length > 0
     ? `${error.type}|${error.code ?? ''}|${frames.join('>')}`
